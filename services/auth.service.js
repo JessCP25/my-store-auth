@@ -32,7 +32,41 @@ class AuthService {
     };
   }
 
-  async sendEmail(email) {
+  async sendRecovery(email){
+    const user = await service.findByEmail(email);
+    if(!user){
+      throw boom.unauthorized();
+    }
+    const payload = {sub: user.id };
+    const token = jwt.sign(payload, config.jwtSecret, {expiresIn: '15min'});
+    const link =  `http://myfrontend.com/recovery?token=${token}`;
+    await service.update(user.id, {recoveryToken: token});
+    const mail ={
+      from: config.email, // sender address
+      to: email, // list of receivers
+      subject: 'Email para recuperar contraseña ✔', // Subject line
+      html: `<b>Ingrese a este link => ${link} </b>`, // html body
+    }
+    const rta = await this.sendEmail(mail);
+    return rta;
+  }
+
+  async changePassword(token, newPassword){
+    try {
+      const payload = jwt.verify(token, config.jwtSecret);
+      const user = await service.findOne(payload.sub);
+      if(user.recoveryToken !== token){
+        throw boom.unauthorized();
+      }
+      const hash =  bcrypt.hash(newPassword, 10);
+      await service.update(user.id, {recoveryToken: null, password: hash});
+      return ({message: 'Password changed'});
+    } catch (error) {
+      throw boom.unauthorized()
+    }
+  }
+
+  async sendEmail(infoMail) {
     const transporter = nodemailer.createTransport({
       host: 'smtp.ethereal.email',
       port: 465,
@@ -42,13 +76,8 @@ class AuthService {
         pass: config.password,
       },
     });
-    await transporter.sendMail({
-      from: config.email, // sender address
-      to: email, // list of receivers
-      subject: 'Hello ✔', // Subject line
-      text: 'Hello world?', // plain text body
-      html: '<b>Hello world?</b>', // html body
-    });
+    await transporter.sendMail(infoMail);
+    return {message: 'Email sent'}
   }
 }
 
